@@ -1,0 +1,467 @@
+<html>
+
+<body>
+    <svg id='viz'></svg>
+</body>
+
+<script src='https://d3js.org/d3.v5.min.js'></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/110/three.js"></script>
+<script src="./obs.js"></script>
+<script>
+    var width = 500;
+    var height = 500;
+    var color = d3.scaleOrdinal(d3.schemeCategory10);
+
+    var forest = [[54581641, 64080174, 24346381, 69107959], [86374198, 61363882, 68783324, 79706116], [668150, 92178815, 89819108, 94701471], [83920491, 22724204, 46281641, 47531096], [89078499, 18904913, 25462145, 60813308]]
+
+    createGraph(forest)
+
+    var nodes = []
+    var links = []
+
+    for (var x = 0; x < forest.length; x++) {
+        for (var y = 0; y < forest[x].length; y++) {
+            nodes.push(forest[x][y])
+
+            forest[x][y].graphNodes.forEach(node => {
+
+                var add = true
+                links.forEach(link => {
+                    if (link.source == node.id && link.target == forest[x][y].id) {
+                        add = false
+                    }
+                });
+
+                links.push({
+                    source: forest[x][y].id,
+                    target: node.id
+                })
+            });
+        }
+    }
+
+    var graphLayout = d3.forceSimulation(nodes)
+        .force("charge", d3.forceManyBody().strength(-3000))
+        .force("center", d3.forceCenter(width / 2, height / 2))
+        .force("x", d3.forceX(width / 2).strength(1))
+        .force("y", d3.forceY(height / 2).strength(1))
+        .force("link", d3.forceLink(links).id(function (d) { return d.id; }).distance(50).strength(1))
+        .on("tick", ticked);
+
+    var svg = d3.select("#viz").attr("width", width).attr("height", height);
+    var container = svg.append("g");
+
+    var link = container.append("g").attr("class", "links")
+        .selectAll("line")
+        .data(links)
+        .enter()
+        .append("line")
+        .attr("stroke", "#aaa")
+        .attr("stroke-width", "1px");
+
+    var node = container.append("g").attr("class", "nodes")
+        .selectAll("g")
+        .data(nodes)
+        .enter()
+        .append("circle")
+        .attr("r", function (n) { return n.r })
+        .attr("fill", function (d) { return color(d.group); })
+
+
+    node.on('click', function (n) {
+        console.log(n.height)
+    })
+
+    function ticked() {
+
+        node.call(updateNode);
+        link.call(updateLink);
+
+    }
+
+    function fixna(x) {
+        if (isFinite(x)) return x;
+        return 0;
+    }
+
+
+    function updateLink(link) {
+        link.attr("x1", function (d) { return fixna(d.source.x); })
+            .attr("y1", function (d) { return fixna(d.source.y); })
+            .attr("x2", function (d) { return fixna(d.target.x); })
+            .attr("y2", function (d) { return fixna(d.target.y); });
+    }
+
+    function updateNode(node) {
+        node.attr("fill", function (n) {
+            return n.color
+        })
+        node.attr('r', function (n) {
+            return n.r
+        })
+        node.attr("transform", function (d) {
+            return "translate(" + fixna(d.x) + "," + fixna(d.y) + ")";
+        });
+    }
+
+
+    var renderer = new THREE.WebGLRenderer({ antialias: true });
+
+    // step1: how to create scene
+    var scene = new THREE.Scene();
+
+    // step2: how to create camera
+    var camera = new THREE.PerspectiveCamera(10, 500 / 500, 1, 100)
+
+    function threejs_axis_plane() {
+
+        /*for (var y = 0; y < 50; y++) {
+            matrix.push([])
+            for (var x = 0; x < 50; x++) {
+                matrix[y].push(0.2 + (0.2 * Math.floor(Math.random() * 10)))
+            }
+        }*/
+
+        // find largest element
+        var maxHeight = 0
+        for (var x = 0; x < forest.length; x++) {
+            for (var i = 0; i < forest[0].length; i++) {
+                if (forest[x][i].height > maxHeight) {
+                    maxHeight = forest[x][i].height
+                }
+            }
+        }
+
+        camera.position.set(40, 30, 10);
+        camera.lookAt(scene.position);
+
+        // step3: how to create renderer
+        renderer.setClearColor(0xdddddd);
+        renderer.setSize(500, 500);
+        renderer.shadowMap.enabled = true;
+        renderer.shadowMap.type = THREE.PCFSoftShadowMap;
+
+        var controls = new THREE.OrbitControls(camera, renderer.domElement)
+
+        // step4: how to create axis
+        var axis = new THREE.AxisHelper(10);
+        scene.add(axis);
+
+        // step5: how to create color
+        var color = new THREE.Color("rgb(255, 0, 0)");
+
+        // step6: how to create grid
+        var grid = new THREE.GridHelper(10, 20, color, 0x000000);
+        scene.add(grid);
+
+        // step7: how to create cube
+        for (var y = 0; y < forest.length; y++) {
+            for (var x = 0; x < forest[y].length; x++) {
+
+                var height = 3
+                var colour = 0xffffff
+                if (forest[y][x].height > 0) {
+                    height = 0.2 * ((forest[y][x].height / maxHeight) * 10)
+                    colour = 'green'
+                }
+
+                var cubeGeo = new THREE.BoxGeometry(0.2, height, 0.2)
+                var cubeMaterial = new THREE.MeshLambertMaterial({ color: colour });
+                var cube = new THREE.Mesh(cubeGeo, cubeMaterial);
+                forest[y][x]['cube'] = cube
+                translate(cube, x, y)
+                cube.castShadow = true;
+                cube.receiveShadow = false;
+                scene.add(cube);
+
+            }
+        }
+
+        var cubeGeo = new THREE.BoxGeometry(0.2, 0.2, 0.2)
+        var cubeMaterial = new THREE.MeshLambertMaterial({ color: 0x00ff00, opacity: 0.3, transparent: true });
+        var cube = new THREE.Mesh(cubeGeo, cubeMaterial);
+        var z = -5 + (10 * 0.2)
+        var x = -5 + (30 * 0.2)
+        var y = ((cube.geometry.parameters.height / 0.2) - 1) / 10
+
+        cube.position.set(x, 1.5, z)
+        cube.castShadow = true;
+        cube.receiveShadow = false;
+        //scene.add(cube);
+
+        setInterval(() => {
+
+            renderer.render(scene, camera);
+
+        }, 10);
+
+
+        // step8: how to create plane
+        var planeGeo = new THREE.PlaneGeometry(10, 10, 30);
+        var planeMaterial = new THREE.MeshLambertMaterial({ color: 'brown' });
+        var plane = new THREE.Mesh(planeGeo, planeMaterial);
+        plane.rotation.x = -.5 * Math.PI;
+        plane.receiveShadow = true;
+        scene.add(plane);
+
+        // step9: how to create spot light
+        var spotLight = new THREE.SpotLight(0xffffff);
+        spotLight.position.set(15, 30, 50);
+        spotLight.castShadow = true;
+        scene.add(spotLight);
+
+        // step10: how to append renderer on canvas
+        document.body.appendChild(renderer.domElement);
+
+        // step11: how to render scene with camera
+        renderer.render(scene, camera);
+    }
+
+    function translate(cube, x, y) {
+        // x = 0, z = -5
+        // x = 3, z = -4.4
+
+        z = (y * 0.2)
+        x = (x * 0.2)
+        y = ((cube.geometry.parameters.height / 0.2) - 1) / 10
+
+        cube.position.set(x, y, z)
+
+        // 0,0 = -5,0,-5
+
+    }
+
+    /**
+ * @param {number[][]} forest
+ * @return {number}
+ */
+    var cutOffTree = function () {
+
+        // create route table 
+
+        var flatList = []
+
+        for (var i = 0; i < forest.length; i++) {
+            for (var x = 0; x < forest[i].length; x++) {
+                if (typeof forest[i][x] == 'object' && forest[i][x].height > 0) {
+                    flatList.push(forest[i][x])
+                }
+            }
+        }
+
+        flatList.sort(function (a, b) {
+            return a.height - b.height
+        })
+
+        var totalHops = 0
+        var currentNode = forest[0][0]
+        var i = 0
+        var finishedRun = true
+
+        var interval = setInterval(function () {
+            if (i < flatList.length) {
+                if (finishedRun) {
+                    finishedRun = false
+                    nodes.forEach(function (node) {
+                        node.color = 'blue'
+                        node.r = 5
+                    })
+                    currentNode['color'] = 'red'
+                    currentNode['r'] = 10
+                    flatList[i]['color'] = 'green'
+                    flatList[i]['r'] = 10
+                    bfs([currentNode], flatList[i], [currentNode]).then(function (res) {
+                        currentNode = flatList[i]
+                        ticked()
+                        scene.remove(flatList[i].cube)
+                        //renderer.render(scene, camera);
+
+
+                        finishedRun = true
+                        i++
+
+                        totalHops += res
+                    })
+                }
+            } else {
+                console.log("done")
+                console.log(totalHops)
+                clearInterval(interval)
+                //return totalHops;
+            }
+        }, 1000)
+
+
+
+    };
+
+    function bfs(nodes, targetNode, visited) {
+
+        return new Promise(function (resolve, reject) {
+            var depth = 0
+
+            if (nodes[0] == targetNode) {
+                resolve(0)
+                return
+            }
+
+            nodes.forEach(function (node) {
+                if (node.color == 'purple' || node.color == 'pink') {
+                    node.color = 'blue'
+                }
+            })
+
+            var interval = setInterval(() => {
+
+
+                ticked()
+
+                if (nodes.length > 0) {
+                    depth++
+
+
+                    var tmpNodes = []
+
+                    nodes.forEach(function (node) {
+                        if (node.color != 'red') {
+                            node.color = 'pink'
+                        }
+                    })
+
+                    while (nodes.length > 0) {
+
+                        var node = nodes[0]
+                        nodes.shift()
+
+                        for (var i = 0; i < node.graphNodes.length; i++) {
+
+                            if (node.graphNodes[i] == targetNode) {
+                                clearInterval(interval)
+                                resolve(depth)
+                                return
+                            } else if (node.graphNodes[i].height > 0 && visited.indexOf(node.graphNodes[i]) == -1) {
+                                visited.push(node.graphNodes[i])
+                                tmpNodes.push(node.graphNodes[i])
+                                node.graphNodes[i].color = 'purple'
+                            }
+                        }
+                    }
+
+                    nodes = tmpNodes
+                    ticked()
+
+
+                } else {
+                    clearInterval(interval)
+                    resolve(-1)
+                    return
+                }
+            }, 1000);
+        })
+
+    }
+
+    function linkNodes(sX, sY, tX, tY, forest) {
+        if (typeof forest[tX][tY] != 'object') {
+            forest[tX][tY] = {
+                id: tX + ',' + tY,
+                color: 'blue',
+                r: 5,
+                height: forest[tX][tY],
+                graphNodes: [forest[sX][sY]],
+                shortestPath: []
+            }
+
+            !forest[sX][sY].graphNodes.indexOf(forest[tX][tY]) == -1 && forest[sX][sY].graphNodes.push(forest[tX][tY])
+
+        } else if (typeof forest[tX][tY] == 'object') {
+            forest[tX][tY].graphNodes.push(forest[sX][sY])
+
+            !forest[sX][sY].graphNodes.indexOf(forest[tX][tY]) == -1 && forest[sX][sY].graphNodes.push(forest[tX][tY])
+
+        }
+
+    }
+
+    function createGraph(forest) {
+
+        for (var x = 0; x < forest.length; x++) {
+            for (var y = 0; y < forest[x].length; y++) {
+
+                if (typeof forest[x][y] != 'object') {
+                    forest[x][y] = {
+                        id: x + ',' + y,
+                        r: 5,
+                        color: 'blue',
+                        height: forest[x][y],
+                        graphNodes: [],
+                        shortestPath: []
+                    }
+                }
+
+                if (typeof forest[x][y] == 'object') {
+                    if (x == 0) {
+                        // left most
+                        if (y == 0) {
+                            // top left
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                        } else if (y < forest[0].length - 1) {
+                            // in middle somewhere
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                        } else {
+                            // top right
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                        }
+                    } else if (x < forest.length - 1) {
+                        // in middle somewhere
+                        if (y == 0) {
+                            // middle left
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                        } else if (y < forest[0].length - 1) {
+                            // in middle somewhere
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                        } else {
+                            // miidle right
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x + 1] && linkNodes(x, y, x + 1, y, forest)
+                        }
+                    } else {
+                        // bottom most
+                        if (y == 0) {
+                            // bottom left
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                        } else if (y < forest[0].length - 1) {
+                            // in middle somewhere
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                            forest[x][y + 1] && linkNodes(x, y, x, y + 1, forest)
+                        } else {
+                            // bottom right
+                            forest[x - 1] && linkNodes(x, y, x - 1, y, forest)
+                            forest[x][y - 1] && linkNodes(x, y, x, y - 1, forest)
+                        }
+                    }
+                }
+
+            }
+        }
+
+    }
+
+    threejs_axis_plane()
+    cutOffTree()
+
+</script>
+
+</html>
